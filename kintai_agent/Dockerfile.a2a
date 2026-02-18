@@ -1,0 +1,21 @@
+# AgentCore Runtime用Dockerイメージ (A2A版, ARM64)
+FROM --platform=linux/arm64 python:3.12-slim
+
+# 作業ディレクトリを設定
+WORKDIR /app
+
+# 依存関係をインストール（uvicorn含む）
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# アプリケーションコードをコピー
+COPY . .
+
+# __pycache__を削除
+RUN find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+# ポート9000で待ち受け（A2Aプロトコルの要件）
+EXPOSE 9000
+
+# A2Aエントリーポイント
+CMD ["python", "main_a2a.py"]

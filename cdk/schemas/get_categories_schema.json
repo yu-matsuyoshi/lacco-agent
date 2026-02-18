@@ -1,0 +1,9 @@
+{
+  "get_categories": {
+    "description": "Get all available work categories with their IDs and names",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+}

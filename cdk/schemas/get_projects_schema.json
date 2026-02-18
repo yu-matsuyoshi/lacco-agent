@@ -1,0 +1,9 @@
+{
+  "get_projects": {
+    "description": "Get all available projects with their IDs and names",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "validate_percentage": {
+    "description": "Validate that the sum of work entry percentages equals 100%",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "description": "Array of work entries to validate",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": { "type": "string" },
+              "project_id": { "type": "number" },
+              "project_name": { "type": "string" },
+              "category_id": { "type": "number" },
+              "category_name": { "type": "string" },
+              "percentage": { "type": "number" }
+            }
+          }
+        }
+      },
+      "required": ["entries"]
+    }
+  }
+}
