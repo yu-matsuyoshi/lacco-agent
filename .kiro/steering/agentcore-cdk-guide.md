@@ -340,6 +340,65 @@ gateway.addMcpServerTarget('GoogleCalendarTarget', {
    - エージェントが自動的にトークン取得
    - A2Aサーバーとして動作
 
+## AgentCore Runtime スケーリングの制約
+
+### 重要な制約
+
+AgentCore Runtimeは完全サーバーレス設計で、以下の制約があります：
+
+- **最小インスタンス数の設定不可**: ゼロからスケール
+- **15分のアイドルタイムアウト**: 非アクティブなコンテナは自動終了
+- **コンテナの頻繁な入れ替わり**: インメモリキャッシュは効果が限定的
+
+### M2Mトークンキャッシュのベストプラクティス
+
+コンテナ間で共有するキャッシュにはDynamoDBを使用します：
+
+```typescript
+// DynamoDB テーブル - M2Mトークンキャッシュ用
+const tokenCacheTable = new dynamodb.Table(this, 'TokenCacheTable', {
+  tableName: `my-agent-token-cache-${this.account}`,
+  partitionKey: {
+    name: 'cache_key',
+    type: dynamodb.AttributeType.STRING,
+  },
+  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+  timeToLiveAttribute: 'ttl',  // 自動削除用TTL
+});
+
+// Runtimeに権限付与
+tokenCacheTable.grantReadWriteData(runtime);
+
+// 環境変数でテーブル名を渡す
+runtime.addEnvironmentVariable('TOKEN_CACHE_TABLE', tokenCacheTable.tableName);
+```
+
+**Pythonエージェントでの使用例:**
+```python
+import boto3
+
+class MyAgent:
+    def __init__(self):
+        self.token_cache_table = os.getenv("TOKEN_CACHE_TABLE")
+        self._dynamodb = boto3.resource('dynamodb')
+
+    def get_cached_token(self):
+        table = self._dynamodb.Table(self.token_cache_table)
+        response = table.get_item(Key={'cache_key': 'my_token'})
+        if 'Item' in response:
+            return response['Item']['token']
+        return None
+
+    def save_token(self, token, expires_at):
+        table = self._dynamodb.Table(self.token_cache_table)
+        table.put_item(Item={
+            'cache_key': 'my_token',
+            'token': token,
+            'expires_at': int(expires_at),
+            'ttl': int(expires_at) + 3600,  # 1時間後に自動削除
+        })
+```
+
 ## 参考リンク
 
 - [公式ドキュメント](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-bedrock-agentcore-alpha-readme.html)

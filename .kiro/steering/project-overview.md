@@ -67,6 +67,12 @@ title: Kintai Agent Project Overview
 - アクセストークン発行
 - ランタイムへの認証に使用
 
+### 7. DynamoDB トークンキャッシュ
+- M2Mトークンの共有キャッシュ（全コンテナで共有）
+- Cognito M2Mリクエスト数を削減しコスト最適化
+- TTL属性による自動削除（トークン期限＋1時間後）
+- AgentCore Runtimeのコンテナ入れ替わりに対応
+
 ## 開発ガイドライン
 
 ### コーディング規約
@@ -80,12 +86,12 @@ title: Kintai Agent Project Overview
 .
 ├── cdk/                    # CDKインフラコード（TypeScript）
 │   ├── lib/               # スタック定義
-│   │   └── kintai-agent-stack.ts  # メインスタック（Gateway, Runtime, Memory, Cognito）
+│   │   └── kintai-agent-stack.ts  # メインスタック（Gateway, Runtime, Memory, Cognito, DynamoDB）
 │   ├── lambda/            # Lambda関数
 │   └── bin/               # エントリーポイント
 ├── kintai_agent/          # Pythonエージェントコード
 │   ├── agent_a2a.py       # A2Aサーバー実装（Memory統合）
-│   ├── core.py            # KintaiAgentCoreクラス
+│   ├── core.py            # KintaiAgentCoreクラス（DynamoDBトークンキャッシュ含む）
 │   └── requirements.txt   # 依存関係
 ├── frontend_a2a/          # A2A版Streamlit UI
 │   ├── app.py             # メインアプリ
@@ -107,6 +113,7 @@ title: Kintai Agent Project Overview
 - `MODEL_ID`: Bedrockモデル ID（例: `us.anthropic.claude-sonnet-4-5-20250929-v1:0`）
 - `AGENTCORE_MEMORY_ID`: AgentCore MemoryのID
 - `AGENTCORE_RUNTIME_URL`: A2AランタイムのURL
+- `TOKEN_CACHE_TABLE`: DynamoDBトークンキャッシュテーブル名
 
 **Frontend設定（config.py）**:
 - `REGION`: AWSリージョン
@@ -134,6 +141,11 @@ title: Kintai Agent Project Overview
    - `session_id`は33文字以上が必要
    - `bedrock-agentcore[strands-agents]`パッケージが必要
    - Agent作成時に`session_manager`引数で統合
+8. **AgentCore Runtime スケーリング**:
+   - 完全サーバーレス設計（最小インスタンス数の設定不可）
+   - コンテナは15分のアイドル後に自動終了
+   - コンテナが頻繁に入れ替わるため、インメモリキャッシュは効果が限定的
+   - M2Mトークン等はDynamoDBで共有キャッシュを推奨
 
 ## よく使うコマンド
 
@@ -142,18 +154,17 @@ title: Kintai Agent Project Overview
 # cdkディレクトリに移動
 cd cdk
 
-# 差分確認
-npx cdk diff
+# 差分確認（us-east-1リージョン指定）
+AWS_REGION=us-east-1 CDK_DEFAULT_REGION=us-east-1 npx cdk diff --profile private-us
 
-# デプロイ
-npx cdk deploy
-
-# 特定スタックのみデプロイ
-npx cdk deploy KintaiAgentStack
+# デプロイ（us-east-1リージョン指定）
+AWS_REGION=us-east-1 CDK_DEFAULT_REGION=us-east-1 npx cdk deploy --profile private-us
 
 # デプロイ（承認スキップ）
-npx cdk deploy --require-approval never
+AWS_REGION=us-east-1 CDK_DEFAULT_REGION=us-east-1 npx cdk deploy --profile private-us --require-approval never
 ```
+
+**注意**: CDK_DEFAULT_REGIONを明示的に指定しないと、デフォルトリージョン（ap-northeast-1等）にデプロイされる場合があります。
 
 ### Streamlit起動（A2A版）
 ```bash

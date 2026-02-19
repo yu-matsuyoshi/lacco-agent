@@ -39,6 +39,8 @@ def handle_request(payload: Dict[str, Any], context: Any = None) -> Dict[str, An
             - action: "generate_from_text" / "generate_from_calendar" / "debug"
             - text: 自然言語入力（action="generate_from_text"の場合）
             - date: 対象日付（action="generate_from_calendar"の場合）
+            - session_id: セッションID（Memory統合用、オプション）
+            - actor_id: アクターID（ユーザーID、オプション）
         context: リクエストコンテキスト
 
     Returns:
@@ -46,6 +48,8 @@ def handle_request(payload: Dict[str, Any], context: Any = None) -> Dict[str, An
     """
     try:
         action = payload.get("action", "generate_from_text")
+        session_id = payload.get("session_id")
+        actor_id = payload.get("actor_id", "default-actor")
 
         # デバッグ用
         if action == "debug":
@@ -64,7 +68,7 @@ def handle_request(payload: Dict[str, Any], context: Any = None) -> Dict[str, An
                     "entries": []
                 }
 
-            result = agent_instance.generate_from_text(text)
+            result = agent_instance.generate_from_text(text, session_id, actor_id)
             return _format_result(result)
 
         elif action == "generate_from_calendar":

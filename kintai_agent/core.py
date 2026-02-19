@@ -7,9 +7,22 @@ import os
 import json
 import re
 import asyncio
+import time
 from datetime import datetime
+from pathlib import Path
 from strands import Agent
 from strands.models import BedrockModel
+import boto3
+from botocore.exceptions import ClientError
+
+
+def load_commands_reference() -> str:
+    """コマンドリファレンスを読み込む"""
+    commands_path = Path(__file__).parent / "prompts" / "commands.md"
+    try:
+        return commands_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "（コマンドリファレンスが見つかりません）"
 
 # MCP imports
 try:
@@ -23,6 +36,18 @@ except ImportError:
 
 from bedrock_agentcore.identity.auth import requires_access_token
 
+# Memory imports
+try:
+    from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
+    from bedrock_agentcore.memory.integrations.strands.session_manager import (
+        AgentCoreMemorySessionManager,
+    )
+    MEMORY_AVAILABLE = True
+except ImportError:
+    MEMORY_AVAILABLE = False
+    AgentCoreMemoryConfig = None
+    AgentCoreMemorySessionManager = None
+
 from models import (
     CommandResult,
     WorkEntry,
@@ -33,71 +58,130 @@ from command_generator import CommandGenerator
 GATEWAY_OAUTH_PROVIDER_NAME = "kintai-gateway-m2m"
 
 
-def build_system_prompt() -> str:
-    """システムプロンプトを構築"""
-    return """あなたは工数管理システム（OA Lacco APP）のコマンド生成アシスタントです。
+def create_session_manager(
+    session_id: str,
+    actor_id: str,
+    memory_id: Optional[str] = None,
+) -> Optional["AgentCoreMemorySessionManager"]:
+    """
+    AgentCoreMemorySessionManagerを作成
 
-## 役割
-- ユーザーの自然言語入力を解析
-- 適切なプロジェクト（案件）と区分を特定
-- OA Lacco APPのコマンド形式で出力
+    Args:
+        session_id: セッションID
+        actor_id: アクターID（ユーザーID）
+        memory_id: Memory ID（省略時は環境変数から取得）
 
-## 利用可能なツール
-1. get_projects: プロジェクト一覧取得
-2. get_categories: 区分一覧取得
-3. validate_percentage: 割合検証
-4. get_calendar_events: カレンダーイベント取得（Task 14で実装予定）
+    Returns:
+        AgentCoreMemorySessionManager または None
+    """
+    if not MEMORY_AVAILABLE:
+        print("⚠️ Memory integration not available")
+        return None
 
-## コマンド形式
-OA Lacco APP add <日付> <案件ID> <区分ID> <割合>%
+    memory_id = memory_id or os.environ.get("AGENTCORE_MEMORY_ID_HTTP")
+    if not memory_id:
+        print("⚠️ Memory not configured (AGENTCORE_MEMORY_ID_HTTP not set)")
+        return None
 
-例: OA Lacco APP add 2026/01/27 12345 1 50%
+    # session_idは33文字以上必要
+    if len(session_id) < 33:
+        session_id = session_id + "-" + "0" * (33 - len(session_id) - 1)
 
-## 処理フロー
-1. 日付表現を解析（「明日」→ YYYY/MM/DD）
-2. get_projectsツールでプロジェクト一覧を取得
-3. プロジェクト名からIDを特定
-4. get_categoriesツールで区分一覧を取得
-5. 区分名からIDを特定
-6. validate_percentageツールで割合を検証（合計100%）
-7. コマンドを生成
+    try:
+        config = AgentCoreMemoryConfig(
+            memory_id=memory_id,
+            session_id=session_id,
+            actor_id=actor_id,
+        )
 
-## 案件マッチングの優先順位
-1. 完全一致（confidence: high）
-2. 部分一致（1件のみ: high、複数: medium）
-3. LLMで候補から選択（複数部分一致: medium）
-4. LLMで全検索（類似度: low）
+        session_manager = AgentCoreMemorySessionManager(
+            agentcore_memory_config=config,
+            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        )
 
-## 出力形式
+        print(f"✅ Memory session manager created: session={session_id[:20]}...")
+        return session_manager
+
+    except Exception as e:
+        print(f"❌ Failed to create session manager: {e}")
+        return None
+
+
+def _build_base_sections(today: str) -> str:
+    """共通部分: role, context, tools, commands, rules"""
+    commands_ref = load_commands_reference()
+
+    return f"""<role>
+あなたは工数管理システム（OA Lacco APP）のアシスタントです。
+ユーザーの自然言語入力を解析し、OA Lacco APPのコマンドを生成します。
+</role>
+
+<context>
+今日の日付: {today}
+</context>
+
+<tools>
+工数登録の前に、必ず以下のツールを使用してプロジェクトIDと区分IDを確認してください：
+- get_projects: プロジェクト一覧取得
+- get_categories: 区分一覧取得
+- validate_percentage: 割合検証（合計100%か確認）
+</tools>
+
+<commands>
+{commands_ref}
+</commands>
+
+<rules>
+【日付の解釈】
+- 「今日」→ {today}
+- 「明日」→ 翌日の日付
+- 「昨日」→ 前日の日付
+- 具体的な日付指定もOK（例: 2/18, 2月18日）
+
+【プロジェクトと区分の区別（重要）】
+プロジェクト（案件）と区分（作業種別）は別の概念です。
+
+- プロジェクト: 案件名・プロジェクト名（例：ECサイトリニューアル、基幹システム刷新PJ）
+- 区分: 作業の種類（例：開発、設計、保守、会議、テスト）
+
+プロジェクト名に「開発」「保守」などの単語が含まれていても、
+それは区分ではなくプロジェクト名の一部です。
+
+例：
+- 「モバイルアプリ開発」プロジェクトで「保守」作業 → プロジェクト: モバイルアプリ開発, 区分: 保守
+- 「システム保守運用」プロジェクトで「開発」作業 → プロジェクト: システム保守運用, 区分: 開発
+
+【曖昧な入力への対応】
+区分が明示されていない場合や判別が難しい場合は、必ずユーザーに確認してください。
+デフォルトで「開発」を仮定せず、確認を求めてください。
+
+【割合】
+割合の合計は必ず100%になるようにしてください。
+</rules>
+"""
+
+
+def _build_json_output_section() -> str:
+    """HTTP版: JSON出力形式"""
+    return """<output_format>
 必ず以下のJSON形式で出力してください：
 
 ```json
 {
   "success": true,
   "commands": [
-    "OA Lacco APP add 2026/01/27 12345 1 50%",
-    "OA Lacco APP add 2026/01/27 67890 2 50%"
+    "OA Lacco APP add 2026/01/27 12345 1 50%"
   ],
-  "explanation": "プロジェクトAで開発作業を50%、メンテナンス業務で保守作業を50%実施",
+  "explanation": "プロジェクトAで開発作業を50%実施",
   "warnings": [],
   "suggestions": [],
   "entries": [
     {
       "date": "2026/01/27",
       "project_id": 12345,
-      "project_name": "プロジェクトA本体開発",
+      "project_name": "プロジェクトA",
       "category_id": 1,
       "category_name": "開発",
-      "percentage": 50,
-      "confidence": "high",
-      "reason": "部分一致（1件のみ）"
-    },
-    {
-      "date": "2026/01/27",
-      "project_id": 67890,
-      "project_name": "メンテナンス業務システム",
-      "category_id": 2,
-      "category_name": "保守",
       "percentage": 50,
       "confidence": "high",
       "reason": "完全一致"
@@ -106,33 +190,108 @@ OA Lacco APP add <日付> <案件ID> <区分ID> <割合>%
 }
 ```
 
-## 注意事項
-- 割合の合計は必ず100%にする
-- 不明な案件は類似案件を提案
-- 曖昧な入力は確認を求める
-- 日付は必ずYYYY/MM/DD形式に変換
-- 複数の案件がある場合は、それぞれ個別のコマンドを生成
-- 必ずJSON形式で出力する
-
-## エラーハンドリング
-エラーの場合も以下のJSON形式で出力：
-
+エラーの場合:
 ```json
 {
   "success": false,
   "commands": [],
   "explanation": "エラーの説明",
-  "warnings": ["警告メッセージ"],
-  "suggestions": ["提案メッセージ"],
+  "warnings": ["警告"],
+  "suggestions": ["提案"],
   "entries": []
 }
 ```
-
-- 無効な入力: 問題を説明するエラーメッセージ
-- 低信頼度マッチ: 警告を含める
-- マッチ失敗: 有効な案件名を提案
-- 割合不一致: 具体的な警告と修正提案
+</output_format>
 """
+
+
+def _build_natural_response_section(today: str) -> str:
+    """A2A版: 自然言語出力形式"""
+    return f"""<response_format>
+自然な日本語で応答してください。
+
+【プロジェクト一覧や区分一覧を聞かれた場合】
+ツールで取得した情報を見やすい形式で表示してください。
+
+【工数登録の依頼の場合】
+1. まず入力内容を理解したことを伝える
+2. 生成したコマンドを表示
+3. 登録内容の説明を添える
+
+例（単日登録）:
+「ECサイトリニューアル案件で設計作業を100%で登録しますね。
+
+生成されたコマンド:
+```
+OA Lacco APP add {today} 12345 2 100%
+```
+
+- 日付: {today}
+- プロジェクト: ECサイトリニューアル
+- 区分: 設計
+- 割合: 100%」
+
+例（月全体登録）:
+「2月全体にECサイトリニューアル案件で開発作業を50%で登録しますね。
+
+生成されたコマンド:
+```
+OA Lacco APP add -r 2026/02 12345 1 50%
+```
+※ 2月の全営業日に登録されます」
+
+【コピー・削除・確認の依頼の場合】
+
+例（コピー）:
+「昨日の工数を今日にコピーしますね。
+
+生成されたコマンド:
+```
+OA Lacco APP cp 2026/02/17 .
+```」
+
+例（削除）:
+「2月18日の工数を削除しますね。
+
+生成されたコマンド:
+```
+OA Lacco APP rm 2026/02/18
+```」
+
+例（確認）:
+「今月の工数を確認しますね。
+
+コマンド:
+```
+OA Lacco APP ls now
+```」
+</response_format>
+
+<guidelines>
+- 不明なプロジェクトは類似候補を提案
+- 曖昧な入力は確認を求める（特に区分）
+- フレンドリーで丁寧な口調で応答
+</guidelines>
+"""
+
+
+def build_system_prompt(output_format: str = "json") -> str:
+    """
+    システムプロンプトを構築
+
+    Args:
+        output_format: "json"（HTTP版）または "natural"（A2A版）
+
+    Returns:
+        システムプロンプト文字列
+    """
+    today = datetime.now().strftime("%Y/%m/%d")
+    base = _build_base_sections(today)
+
+    if output_format == "natural":
+        return base + _build_natural_response_section(today)
+    else:
+        return base + _build_json_output_section()
 
 
 class KintaiAgentCore:
@@ -141,6 +300,11 @@ class KintaiAgentCore:
 
     HTTP版・A2A版で共通して使用するロジックを提供します。
     """
+
+    # トークンキャッシュの有効期間（秒）- 5分のバッファを持たせる
+    TOKEN_CACHE_BUFFER_SECONDS = 300  # 5分
+    # DynamoDBキャッシュのキー
+    TOKEN_CACHE_KEY = "gateway_m2m_token"
 
     def __init__(
         self,
@@ -160,6 +324,21 @@ class KintaiAgentCore:
         self.model_id = model_id
         self.region = region
 
+        # DynamoDBテーブル名（環境変数から取得）
+        self.token_cache_table = os.getenv("TOKEN_CACHE_TABLE")
+
+        # DynamoDBクライアント（トークンキャッシュ用）
+        self._dynamodb = None
+        if self.token_cache_table:
+            self._dynamodb = boto3.resource('dynamodb', region_name=self.region)
+            print(f"✅ DynamoDB token cache enabled: {self.token_cache_table}")
+        else:
+            print("⚠️ TOKEN_CACHE_TABLE not set, using in-memory cache only")
+
+        # フォールバック用のインメモリキャッシュ
+        self._cached_token: Optional[str] = None
+        self._token_expires_at: float = 0
+
         # Bedrockモデルを初期化
         self.model = BedrockModel(
             model_id=self.model_id,
@@ -171,11 +350,98 @@ class KintaiAgentCore:
         # システムプロンプト
         self.system_prompt = build_system_prompt()
 
+    def _get_cached_token_from_dynamodb(self) -> Optional[tuple[str, float]]:
+        """
+        DynamoDBからキャッシュされたトークンを取得
+
+        Returns:
+            (token, expires_at) または None
+        """
+        if not self._dynamodb or not self.token_cache_table:
+            return None
+
+        try:
+            table = self._dynamodb.Table(self.token_cache_table)
+            response = table.get_item(
+                Key={'cache_key': self.TOKEN_CACHE_KEY}
+            )
+
+            if 'Item' in response:
+                item = response['Item']
+                token = item.get('token')
+                expires_at = float(item.get('expires_at', 0))
+                return (token, expires_at)
+
+            return None
+
+        except ClientError as e:
+            print(f"⚠️ DynamoDB get error: {e}")
+            return None
+
+    def _save_token_to_dynamodb(self, token: str, expires_at: float) -> bool:
+        """
+        トークンをDynamoDBにキャッシュ
+
+        Args:
+            token: アクセストークン
+            expires_at: 有効期限（Unixタイムスタンプ）
+
+        Returns:
+            保存成功したかどうか
+        """
+        if not self._dynamodb or not self.token_cache_table:
+            return False
+
+        try:
+            table = self._dynamodb.Table(self.token_cache_table)
+            # TTLは有効期限の1時間後に設定（安全マージン）
+            ttl = int(expires_at) + 3600
+
+            table.put_item(
+                Item={
+                    'cache_key': self.TOKEN_CACHE_KEY,
+                    'token': token,
+                    'expires_at': int(expires_at),
+                    'ttl': ttl,
+                    'updated_at': int(time.time()),
+                }
+            )
+            print(f"✅ Token saved to DynamoDB cache")
+            return True
+
+        except ClientError as e:
+            print(f"⚠️ DynamoDB put error: {e}")
+            return False
+
     async def get_gateway_token(self) -> Optional[str]:
         """
         @requires_access_tokenデコレータを使用してGateway用アクセストークンを取得
         M2M認証でAgentCore IdentityのCredential Providerと通信
+
+        トークンはDynamoDBにキャッシュされ、全コンテナで共有されます。
+        有効期限の5分前まで再利用され、Cognitoへのリクエスト数を削減します。
         """
+        current_time = time.time()
+
+        # 1. DynamoDBからキャッシュを確認（全コンテナ共有）
+        cached = self._get_cached_token_from_dynamodb()
+        if cached:
+            token, expires_at = cached
+            if current_time < expires_at - self.TOKEN_CACHE_BUFFER_SECONDS:
+                print("✅ Using cached Gateway access token (from DynamoDB)")
+                # インメモリにもキャッシュ（同一コンテナ内の高速化）
+                self._cached_token = token
+                self._token_expires_at = expires_at
+                return token
+            else:
+                print("⚠️ DynamoDB cached token expired, fetching new one...")
+
+        # 2. インメモリキャッシュを確認（フォールバック）
+        if self._cached_token and current_time < self._token_expires_at - self.TOKEN_CACHE_BUFFER_SECONDS:
+            print("✅ Using cached Gateway access token (in-memory)")
+            return self._cached_token
+
+        # 3. 新しいトークンを取得
         try:
             print(f"🔐 Getting Gateway access token via @requires_access_token")
             print(f"   Provider: {GATEWAY_OAUTH_PROVIDER_NAME}")
@@ -190,6 +456,18 @@ class KintaiAgentCore:
 
             token = await get_token(access_token="")
             print("✅ Gateway access token obtained via @requires_access_token")
+
+            # トークンの有効期限（デフォルト1時間）
+            expires_at = current_time + 3600
+
+            # 4. DynamoDBにキャッシュ（全コンテナで共有）
+            self._save_token_to_dynamodb(token, expires_at)
+
+            # 5. インメモリにもキャッシュ
+            self._cached_token = token
+            self._token_expires_at = expires_at
+            print(f"   Token cached until {time.strftime('%H:%M:%S', time.localtime(expires_at))}")
+
             return token
 
         except Exception as e:
@@ -242,12 +520,17 @@ class KintaiAgentCore:
             )
         )
 
-    def create_agent_with_tools(self, tools: list) -> Agent:
+    def create_agent_with_tools(
+        self,
+        tools: list,
+        session_manager: Optional["AgentCoreMemorySessionManager"] = None
+    ) -> Agent:
         """
         ツール付きでAgentを作成
 
         Args:
             tools: ツールのリスト
+            session_manager: セッションマネージャー（Memory統合用）
 
         Returns:
             Agent インスタンス
@@ -255,7 +538,8 @@ class KintaiAgentCore:
         return Agent(
             model=self.model,
             system_prompt=self.system_prompt,
-            tools=tools
+            tools=tools,
+            session_manager=session_manager,
         )
 
     def parse_agent_response(self, response_str: str) -> CommandResult:
@@ -340,12 +624,19 @@ class KintaiAgentCore:
                 entries=[]
             )
 
-    def run_with_mcp_context(self, text: str) -> str:
+    def run_with_mcp_context(
+        self,
+        text: str,
+        session_id: Optional[str] = None,
+        actor_id: str = "default-actor"
+    ) -> str:
         """
         MCPClientコンテキスト内でAgentを実行
 
         Args:
             text: ユーザーの自然言語入力
+            session_id: セッションID（Memory統合用）
+            actor_id: アクターID（ユーザーID）
 
         Returns:
             Agentのレスポンス（文字列）
@@ -360,28 +651,41 @@ class KintaiAgentCore:
         if not gateway_token:
             raise RuntimeError("Failed to get Gateway OAuth2 token")
 
+        # セッションマネージャーを作成（session_idがある場合）
+        session_manager = None
+        if session_id:
+            session_manager = create_session_manager(session_id, actor_id)
+
         mcp_client = self.create_mcp_client(gateway_token)
 
         with mcp_client:
             tools = mcp_client.list_tools_sync()
-            print(f"✅ Loaded {len(tools)} tools from Gateway")
+            memory_status = "enabled" if session_manager else "disabled"
+            print(f"✅ Loaded {len(tools)} tools from Gateway, memory={memory_status}")
 
-            agent = self.create_agent_with_tools(tools)
+            agent = self.create_agent_with_tools(tools, session_manager)
             response = agent(text)
             return str(response)
 
-    def generate_from_text(self, text: str) -> CommandResult:
+    def generate_from_text(
+        self,
+        text: str,
+        session_id: Optional[str] = None,
+        actor_id: str = "default-actor"
+    ) -> CommandResult:
         """
         自然言語からコマンドを生成
 
         Args:
             text: ユーザーの自然言語入力
+            session_id: セッションID（Memory統合用）
+            actor_id: アクターID（ユーザーID）
 
         Returns:
             CommandResult: コマンド生成結果
         """
         try:
-            response_str = self.run_with_mcp_context(text)
+            response_str = self.run_with_mcp_context(text, session_id, actor_id)
             return self.parse_agent_response(response_str)
         except Exception as e:
             return CommandResult(
