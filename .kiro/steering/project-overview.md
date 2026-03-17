@@ -46,10 +46,11 @@ title: Kintai Agent Project Overview
 - OAuth2認証管理（AgentCore Identity経由）
 
 ### 3. AgentCore Identity
-- OAuth2 Credential Providerでトークン管理
-- Token Vaultでアクセストークン・リフレッシュトークンを保存
-- A2A対応：初回ユーザー承認後、自動的にトークン取得・リフレッシュ
-- 注意：CDK L2 Constructは未提供のため、Python SDKスクリプトで作成
+- **M2M認証**: Runtime→Gateway間の認証にOAuth2 Credential Provider（`kintai-gateway-m2m`）を使用
+- Cognito User PoolのM2Mクライアントと連携
+- `@requires_access_token`デコレータでトークン取得を自動化
+- **注意**: CDK L2 Constructは未提供のため、CDKデプロイ後に別途セットアップが必要
+  - セットアップスクリプト: `cdk/scripts/setup-m2m-credential-provider.sh`
 
 ### 4. Strands Agent
 - 自然言語理解
@@ -125,12 +126,12 @@ title: Kintai Agent Project Overview
 ## 重要な制約
 
 1. **AgentCore Gateway**: ツール名にターゲット名がプレフィックスされる（例: `get-projects___get_projects`）
-2. **AgentCore Identity**: OAuth2 Credential ProviderのCDK L2 Constructは未提供
-   - Python SDKスクリプト（`cdk/scripts/setup-google-calendar-oauth.py`）で作成
-   - CDKデプロイ前に一度実行が必要
-3. **OAuth2認証**: Google Calendar用のOAuth2設定は事前にAWSコンソールまたはPython SDKで作成が必要
+2. **AgentCore Identity（M2M認証）**: OAuth2 Credential ProviderのCDK L2 Constructは未提供
+   - CDKデプロイ後に `cdk/scripts/setup-m2m-credential-provider.sh` を実行
+   - Cognito M2MクライアントとAgentCore Identityを連携
+3. **AgentCore Identity（Google Calendar）**: OAuth2設定は事前にAWSコンソールまたはPython SDKで作成が必要
+   - スクリプト: `cdk/scripts/setup-google-calendar-oauth.py`
    - 初回ユーザー承認後、Token Vaultで自動管理
-   - A2Aサーバーとして動作可能（Service Account不要）
 4. **S3アクセス**: Lambda関数にはS3読み込み権限が必要
 5. **Streamlit**: ローカル実行のみ、AWSにデプロイしない
 6. **A2Aプロトコル**:
@@ -146,6 +147,38 @@ title: Kintai Agent Project Overview
    - コンテナは15分のアイドル後に自動終了
    - コンテナが頻繁に入れ替わるため、インメモリキャッシュは効果が限定的
    - M2Mトークン等はDynamoDBで共有キャッシュを推奨
+
+## 新しいAWSアカウントへのデプロイ
+
+### 手順
+
+1. **CDKブートストラップ**
+   ```bash
+   cd cdk
+   AWS_REGION=us-east-1 CDK_DEFAULT_REGION=us-east-1 npx cdk bootstrap --profile <新アカウントprofile>
+   ```
+
+2. **CDKデプロイ**
+   ```bash
+   AWS_REGION=us-east-1 CDK_DEFAULT_REGION=us-east-1 npx cdk deploy --profile <新アカウントprofile>
+   ```
+
+3. **M2M Credential Providerセットアップ**
+   ```bash
+   cd cdk/scripts
+   ./setup-m2m-credential-provider.sh --profile <新アカウントprofile>
+   ```
+
+4. **フロントエンド設定更新**
+   - `frontend_a2a/config.py` を新アカウントの値に更新
+   - CDK出力から `UserPoolId`、`ClientId`、`RuntimeARN` を取得
+
+5. **Cognitoユーザー作成**
+   - AWSコンソールまたはCLIでテスト用ユーザーを作成
+
+### 注意事項
+- CDKデプロイだけでは不完全（M2M Credential Providerが未作成）
+- `setup-m2m-credential-provider.sh` を必ず実行すること
 
 ## よく使うコマンド
 
