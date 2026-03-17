@@ -179,3 +179,12 @@
   - Streamlit UIにログイン画面を実装
   - Cognitoアクセストークンでランタイム認証
   - _実装ファイル: cdk/lib/kintai-agent-stack.ts, frontend_a2a/config.py, frontend_a2a/app.py_
+
+- [x] 25. M2Mトークンキャッシュの最適化（DynamoDB）
+  - CDKでDynamoDBテーブル（`kintai-agent-token-cache-*`）を作成
+  - TTL属性による自動削除を設定
+  - RuntimeにDynamoDB読み書き権限を付与
+  - core.pyにDynamoDBベースの共有トークンキャッシュを実装
+  - コンテナ間でトークンを共有し、Cognito M2Mコスト削減
+  - _実装ファイル: cdk/lib/kintai-agent-stack.ts, kintai_agent/core.py_
+  - _背景: AgentCore Runtimeはコンテナが頻繁に入れ替わるため、インメモリキャッシュでは効果が限定的_
