@@ -4,14 +4,36 @@ OA Lacco APPへの工数入力を自然言語化するAIエージェントです
 
 ## アーキテクチャ
 
+```
+[ユーザー] ─[Cognito]→ [Runtime A2A] ─[M2M Token]→ [Gateway] ─[IAM]→ [Lambda]
+                              │                        │
+                              │                        └─ AgentCore Identity
+                              │                           (Credential Provider)
+                              └─ AgentCore Memory
+                                 (会話履歴)
+```
+
 **AWS環境（CDK L2 Constructでデプロイ）：**
 - **S3 Bucket**: マスタデータ（CSV）の保存
 - **Lambda Functions**: ツール実装（get_projects、get_categories、validate_percentage）
-- **AgentCore Gateway**: ツールとMCPサーバーの統合レイヤー（L2 Construct）
-- **AgentCore Runtime**: Strands Agentのホスティング環境（L2 Construct）
+- **AgentCore Gateway**: ツールとMCPサーバーの統合レイヤー
+- **AgentCore Runtime**: Strands Agent（A2Aプロトコル対応）
+- **AgentCore Memory**: 会話履歴の永続化・自動要約
+- **Cognito User Pool**: ユーザー認証 + M2Mクライアント
+- **DynamoDB**: M2Mトークンキャッシュ
 
 **ローカル環境：**
-- **Streamlit UI**: boto3でAgentCore Runtime APIを呼び出すWebインターフェース
+- **Streamlit UI (A2A版)**: A2Aプロトコルでエージェントを呼び出すWebインターフェース
+
+## 認証フロー
+
+| 区間 | 認証方式 | 説明 |
+|------|---------|------|
+| ユーザー → Runtime | Cognito | ユーザーがログインしてトークン取得 |
+| Runtime → Gateway | AgentCore Identity | M2Mトークンを自動取得 |
+| Gateway → Lambda | IAM | 自動付与（CDK設定） |
+
+詳細は `.kiro/steering/a2a-platform-guide.md` を参照してください。
 
 ## 機能
 
@@ -19,242 +41,204 @@ OA Lacco APPへの工数入力を自然言語化するAIエージェントです
 - Google Calendarイベントから工数を推測（AgentCore Gateway経由）
 - 案件名の曖昧性解決（LLM推論）
 - 割合の自動検証
-- A2Aプロトコル対応（AgentCore Runtime経由）
+- A2Aプロトコル対応
+- 会話履歴の自動管理（AgentCore Memory）
 
 ## セットアップ
 
 ### 1. 依存関係のインストール
 
 ```bash
+# CDK
+cd cdk
+npm install
+
+# エージェント
+cd ../kintai_agent
+pip install -r requirements.txt
+
+# フロントエンド
+cd ../frontend_a2a
 pip install -r requirements.txt
 ```
 
 ### 2. AWS認証情報の設定
 
 ```bash
-aws configure
+# SSO の場合
+aws configure sso --profile <profile-name>
+aws sso login --profile <profile-name>
+
+# アクセスキーの場合
+aws configure --profile <profile-name>
 ```
-
-### 3. 環境変数の設定
-
-`.env.example`を`.env`にコピーして、必要な値を設定してください：
-
-```bash
-cp .env.example .env
-```
-
-必須の環境変数：
-- `AWS_REGION`: AWSリージョン（例: us-east-1）
-- `AWS_ACCOUNT_ID`: AWSアカウントID
-
-### 4. Google Calendar OAuth2設定（オプション）
-
-Google Calendar連携を使用する場合、事前にOAuth2 Credential Providerを作成する必要があります。
-
-#### 4.1. Google Cloud Consoleで設定
-
-1. Google Cloud Consoleでプロジェクトを作成
-2. Google Calendar APIを有効化
-3. OAuth 2.0クライアントIDを作成（Webアプリケーション）
-4. リダイレクトURIを設定: `https://bedrock-agentcore.{region}.amazonaws.com/oauth/callback`
-5. クライアントIDとシークレットを取得
-
-#### 4.2. AWS Secrets Managerに保存
-
-```bash
-aws secretsmanager create-secret \
-    --name kintai-agent-google-calendar-oauth \
-    --secret-string '{"clientId":"xxx.apps.googleusercontent.com","clientSecret":"yyy"}' \
-    --region us-east-1
-```
-
-#### 4.3. OAuth2 Credential Providerを作成
-
-```bash
-python3 cdk/scripts/setup-google-calendar-oauth.py \
-    --region us-east-1 \
-    --provider-name google-calendar \
-    --secret-arn arn:aws:secretsmanager:us-east-1:123456789012:secret:kintai-agent-google-calendar-oauth-abc123
-```
-
-出力されたProvider ARNをメモしてください。
-
-#### 4.4. CDKスタックを更新
-
-`cdk/lib/kintai-agent-stack.ts`のGoogle Calendar MCP Server Targetセクションのコメントを解除し、
-Provider ARNを設定してください。
-
-**注意：**
-- OAuth2でもA2Aサーバーとして動作可能
-- 初回のみユーザーがブラウザで承認
-- 以降はToken Vaultで自動管理
-- Service Accountやドメイン全体の委任は不要
 
 ## デプロイ
 
-### 1. CDK（L2 Construct）でインフラをデプロイ
+### 1. CDKでインフラをデプロイ
 
 ```bash
 cd cdk
 
-# 初回のみ：CDK Bootstrapを実行
-cdk bootstrap
-
-# TypeScriptをビルド
-npm run build
-
-# デプロイ内容を確認
-cdk diff
+# 初回のみ：CDK Bootstrap
+AWS_REGION=ap-northeast-1 CDK_DEFAULT_REGION=ap-northeast-1 npx cdk bootstrap --profile <profile-name>
 
 # デプロイ実行
-cdk deploy
+AWS_REGION=ap-northeast-1 CDK_DEFAULT_REGION=ap-northeast-1 npx cdk deploy --profile <profile-name>
 ```
 
-デプロイされるリソース：
-- S3バケット（マスタデータ）
-- Lambda関数（get_projects、get_categories、validate_percentage）
-- AgentCore Gateway（Lambda Targets + MCP Server Target）
-- AgentCore Runtime（Strands Agent）
+**重要**: `CDK_DEFAULT_REGION` を明示的に指定しないと、デフォルトリージョンにデプロイされる場合があります。
 
-### 2. マスタデータのアップロード
+### 2. M2M Credential Provider のセットアップ
 
-CDKデプロイ時に自動的にS3にアップロードされます。
-手動でアップロードする場合：
+CDKデプロイだけでは不完全です。AgentCore Identity の Credential Provider を作成します。
 
 ```bash
-aws s3 cp data/projects.csv s3://kintai-agent-data-ACCOUNT_ID/master-data/projects.csv
-aws s3 cp data/categories.csv s3://kintai-agent-data-ACCOUNT_ID/master-data/categories.csv
+cd cdk/scripts
+./setup-m2m-credential-provider.sh --profile <profile-name>
 ```
 
-### 3. デプロイ後の確認
+**このスクリプトが行うこと:**
+1. CloudFormation出力からCognito設定を取得
+2. M2Mクライアントシークレットを取得
+3. AgentCore Identity Credential Providerを作成
 
-デプロイが完了すると、以下の情報が出力されます：
+### 3. フロントエンド設定の更新
 
+`frontend_a2a/config.py` をCDK出力の値で更新：
+
+```python
+REGION = "ap-northeast-1"
+USER_POOL_ID = "<CDK出力: UserPoolId>"
+CLIENT_ID = "<CDK出力: UserPoolClientId>"
+RUNTIME_ARN = "<Runtime ARN>"
 ```
-Outputs:
-KintaiAgentStack.DataBucketName = kintai-agent-data-123456789012
-KintaiAgentStack.GatewayArn = arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/xxx
-KintaiAgentStack.GatewayId = xxx
+
+Runtime ARN の確認：
+```bash
+aws bedrock-agentcore-control list-agent-runtimes \
+  --region ap-northeast-1 \
+  --profile <profile-name> \
+  --query 'agentRuntimes[?agentRuntimeName==`kintai_agent_a2a`].agentRuntimeArn' \
+  --output text
 ```
 
-Runtime ARNは、AWSコンソールまたはCLIで確認してください：
+### 4. Cognitoユーザーの作成
 
 ```bash
-aws bedrock-agentcore list-runtimes --region us-east-1
-```
+# ユーザー作成
+aws cognito-idp admin-create-user \
+  --user-pool-id <USER_POOL_ID> \
+  --username testuser \
+  --user-attributes Name=email,Value=test@example.com \
+  --temporary-password "TempPass123!" \
+  --profile <profile-name> \
+  --region ap-northeast-1
 
-### 4. ローカルテスト（オプション）
-
-AgentCore Runtimeにデプロイする前に、ローカルでテストできます：
-
-```bash
-# エージェントをローカルで起動
-python -m kintai_agent
-
-# 別のターミナルでテストリクエストを送信
-curl -X POST http://localhost:8080/invocations \
-  -H "Content-Type: application/json" \
-  -d '{"action": "generate_from_text", "text": "明日はプロジェクトAで開発作業を8時間"}'
+# パスワードを確定（初回変更をスキップ）
+aws cognito-idp admin-set-user-password \
+  --user-pool-id <USER_POOL_ID> \
+  --username testuser \
+  --password "TestPass123!" \
+  --permanent \
+  --profile <profile-name> \
+  --region ap-northeast-1
 ```
 
 ## 使い方
 
-### Streamlit UI（ローカル）
+### Streamlit UI（A2A版）
 
 ```bash
-# エージェントARNを環境変数に設定
-export AGENT_ARN="arn:aws:bedrock-agentcore:us-east-1:123456789012:agent/xxx"
-
-# Streamlit UIを起動
+cd frontend_a2a
 streamlit run app.py
 ```
 
-Streamlit UIは、boto3を使用してAgentCore Runtime上のエージェントを呼び出します。
+ブラウザで http://localhost:8501 にアクセスし、Cognitoユーザーでログイン。
 
-### boto3で直接呼び出し
+### 入力例
 
-```python
-import boto3
-
-client = boto3.client('bedrock-agentcore-runtime')
-
-response = client.invoke_agent(
-    agentArn='arn:aws:bedrock-agentcore:us-east-1:123456789012:agent/xxx',
-    inputText='今日はプロジェクトA 50%、会議 50%'
-)
-
-print(response)
-```
+- 「プロジェクト一覧を教えてください」
+- 「区分一覧を見せてください」
+- 「明日はプロジェクトAで開発作業を100%」
+- 「今日はプロジェクトAで50%、メンテナンス業務で50%」
 
 ## プロジェクト構造
 
 ```
 .
 ├── .kiro/
-│   ├── specs/kintai-agent/      # 仕様書
-│   └── steering/                # プロジェクト共通知識
-│       └── agentcore-cdk-guide.md  # AgentCore CDK L2 Constructガイド
-├── cdk/                         # CDKインフラコード（L2 Construct）
-│   ├── bin/                    # CDKアプリエントリーポイント
-│   ├── lib/                    # スタック定義
-│   │   └── kintai-agent-stack.ts  # メインスタック（L2 Construct使用）
-│   ├── lambda/                 # Lambda関数コード
+│   ├── specs/kintai-agent/          # 仕様書
+│   └── steering/                    # プロジェクトガイド
+│       ├── project-overview.md      # プロジェクト概要
+│       ├── agentcore-cdk-guide.md   # AgentCore CDK L2 Constructガイド
+│       └── a2a-platform-guide.md    # 共通A2Aクライアント実装ガイド
+├── cdk/                             # CDKインフラコード
+│   ├── lib/
+│   │   └── kintai-agent-stack.ts    # メインスタック
+│   ├── lambda/                      # Lambda関数
 │   │   ├── get_projects/
 │   │   ├── get_categories/
 │   │   └── validate_percentage/
-│   └── scripts/                # セットアップスクリプト
-│       └── setup-google-calendar-oauth.py  # OAuth2 Credential Provider作成
-├── data/                        # マスタデータ（ローカル開発用）
-│   ├── projects.csv            # 案件マスタ
-│   └── categories.csv          # 区分マスタ
-├── kintai_agent/               # エージェントコード
-│   ├── __init__.py
-│   ├── agent.py                # Strands Agent実装
-│   ├── models.py               # データモデル
-│   └── data_loader.py          # CSVローダー
-├── app.py                      # Streamlit UI
-├── requirements.txt            # 依存関係
-├── .env.example               # 環境変数テンプレート
-└── README.md                  # このファイル
+│   └── scripts/
+│       └── setup-m2m-credential-provider.sh  # M2M認証セットアップ
+├── kintai_agent/                    # エージェントコード
+│   ├── agent_a2a.py                 # A2Aサーバー実装
+│   ├── core.py                      # コアロジック（トークン管理含む）
+│   └── requirements.txt
+├── frontend_a2a/                    # A2A版フロントエンド
+│   ├── app.py                       # Streamlit UI
+│   ├── config.py                    # 設定（Cognito情報等）
+│   └── requirements.txt
+├── data/                            # マスタデータ
+│   ├── projects.csv
+│   └── categories.csv
+└── README.md
 ```
 
-## 開発
+## 開発コマンド
 
-### ローカルテスト
-
-エージェントコードをローカルでテストする場合：
-
-```python
-from kintai_agent import KintaiAgent
-
-# ローカルのCSVファイルを使用
-agent = KintaiAgent(
-    projects_path="data/projects.csv",
-    categories_path="data/categories.csv"
-)
-
-result = await agent.generate_from_text("今日はプロジェクトA 50%、会議 50%")
-print(result.commands)
-```
-
-### CDKスタックの更新
+### CDK
 
 ```bash
 cd cdk
-cdk diff    # 変更内容を確認
-cdk deploy  # デプロイ
+
+# 差分確認
+AWS_REGION=ap-northeast-1 CDK_DEFAULT_REGION=ap-northeast-1 npx cdk diff --profile <profile-name>
+
+# デプロイ
+AWS_REGION=ap-northeast-1 CDK_DEFAULT_REGION=ap-northeast-1 npx cdk deploy --profile <profile-name>
 ```
 
-## AgentCore CDK L2 Construct
+### ログ確認
 
-このプロジェクトでは、AWS CDKのL2 Constructを使用してAgentCoreリソースをデプロイします。
+```bash
+# Runtime ログ
+aws logs tail /aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT --follow --profile <profile-name> --region ap-northeast-1
 
-詳細は `.kiro/steering/agentcore-cdk-guide.md` を参照してください。
+# Lambda ログ
+aws logs tail /aws/lambda/kintai-agent-get-projects --follow --profile <profile-name> --region ap-northeast-1
+```
 
-**主要なConstruct:**
-- `Runtime`: エージェントのホスティング
-- `Gateway`: ツールとMCPサーバーの統合
-- `GatewayTarget`: Lambda/OpenAPI/Smithy/MCPサーバーターゲット
+## Google Calendar連携（オプション）
+
+Google Calendar連携を使用する場合、OAuth2 Credential Providerを作成する必要があります。
+
+1. Google Cloud ConsoleでOAuth 2.0クライアントIDを作成
+2. リダイレクトURI設定: `https://bedrock-agentcore.{region}.amazonaws.com/oauth/callback`
+3. `cdk/scripts/setup-google-calendar-oauth.py` を実行
+4. CDKスタックのGoogle Calendar MCP Server Targetセクションのコメントを解除
+
+詳細は `.kiro/steering/agentcore-cdk-guide.md` を参照。
+
+## ドキュメント
+
+| ファイル | 内容 |
+|---------|------|
+| `.kiro/steering/project-overview.md` | プロジェクト概要・デプロイ手順 |
+| `.kiro/steering/agentcore-cdk-guide.md` | AgentCore CDK L2 Constructガイド |
+| `.kiro/steering/a2a-platform-guide.md` | 共通A2Aクライアント実装ガイド |
+| `.kiro/specs/kintai-agent/tasks.md` | 実装タスク一覧 |
 
 ## ライセンス
 
