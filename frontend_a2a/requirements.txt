@@ -2,3 +2,7 @@ streamlit>=1.30.0
 boto3>=1.34.0
 httpx>=0.27.0
 a2a-sdk>=0.2.0
+
+# オーケストレータ版 (app_orchestrator.py) 用
+strands-agents>=0.1.0
+strands-agents-tools>=0.1.0
