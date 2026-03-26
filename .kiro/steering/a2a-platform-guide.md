@@ -251,14 +251,14 @@ const agentsRegistry = [
   {
     id: "kintai",
     name: "勤怠管理エージェント",
-    runtimeArn: "arn:aws:bedrock-agentcore:ap-northeast-1:641963215484:runtime/kintai_agent_a2a-xxx",
+    runtimeArn: "arn:aws:bedrock-agentcore:ap-northeast-1:XXXXXXXXXXXX:runtime/kintai_agent_a2a-xxx",
     capabilities: ["勤怠入力", "工数管理"],
     contact: "team-a@example.com"
   },
   {
     id: "expense",
     name: "経費精算エージェント",
-    runtimeArn: "arn:aws:bedrock-agentcore:ap-northeast-1:641963215484:runtime/expense_agent_a2a-xxx",
+    runtimeArn: "arn:aws:bedrock-agentcore:ap-northeast-1:XXXXXXXXXXXX:runtime/expense_agent_a2a-xxx",
     capabilities: ["経費申請", "承認ワークフロー"],
     contact: "team-b@example.com"
   },
@@ -395,7 +395,7 @@ const sendMessage = async (baseUrl: string, message: string, contextId: string, 
   "Effect": "Allow",
   "Action": "bedrock-agentcore:InvokeRuntime",
   "Resource": [
-    "arn:aws:bedrock-agentcore:ap-northeast-1:641963215484:runtime/*"
+    "arn:aws:bedrock-agentcore:ap-northeast-1:XXXXXXXXXXXX:runtime/*"
   ]
 }
 ```
@@ -407,8 +407,8 @@ const sendMessage = async (baseUrl: string, message: string, contextId: string, 
   "Effect": "Allow",
   "Action": "bedrock-agentcore:InvokeRuntime",
   "Resource": [
-    "arn:aws:bedrock-agentcore:ap-northeast-1:641963215484:runtime/kintai_agent_a2a-*",
-    "arn:aws:bedrock-agentcore:ap-northeast-1:641963215484:runtime/expense_agent_a2a-*"
+    "arn:aws:bedrock-agentcore:ap-northeast-1:XXXXXXXXXXXX:runtime/kintai_agent_a2a-*",
+    "arn:aws:bedrock-agentcore:ap-northeast-1:XXXXXXXXXXXX:runtime/expense_agent_a2a-*"
   ]
 }
 ```
