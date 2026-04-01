@@ -24,8 +24,8 @@ app = BedrockAgentCoreApp()
 # エージェントインスタンスを作成
 agent_instance = KintaiAgentCore(
     gateway_url=os.getenv("GATEWAY_URL"),
-    model_id=os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-    region=os.getenv("AWS_REGION", "us-east-1"),
+    model_id=os.getenv("MODEL_ID", "jp.anthropic.claude-sonnet-4-6"),
+    region=os.getenv("AWS_REGION", "ap-northeast-1"),
 )
 
 

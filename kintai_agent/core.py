@@ -96,7 +96,7 @@ def create_session_manager(
 
         session_manager = AgentCoreMemorySessionManager(
             agentcore_memory_config=config,
-            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+            region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
         )
 
         print(f"✅ Memory session manager created: session={session_id[:20]}...")
@@ -309,8 +309,8 @@ class KintaiAgentCore:
     def __init__(
         self,
         gateway_url: Optional[str] = None,
-        model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        region: str = "us-east-1",
+        model_id: str = "jp.anthropic.claude-sonnet-4-6",
+        region: str = "ap-northeast-1",
     ):
         """
         エージェントを初期化
