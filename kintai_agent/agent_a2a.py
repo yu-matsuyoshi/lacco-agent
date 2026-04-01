@@ -65,7 +65,7 @@ def create_session_manager(
 
         session_manager = AgentCoreMemorySessionManager(
             agentcore_memory_config=config,
-            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+            region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
         )
 
         print(f"✅ Memory session manager created: session={session_id[:20]}...")
@@ -78,8 +78,8 @@ def create_session_manager(
 
 core = KintaiAgentCore(
     gateway_url=os.getenv("GATEWAY_URL"),
-    model_id=os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-    region=os.getenv("AWS_REGION", "us-east-1"),
+    model_id=os.getenv("MODEL_ID", "jp.anthropic.claude-sonnet-4-6"),
+    region=os.getenv("AWS_REGION", "ap-northeast-1"),
 )
 
 

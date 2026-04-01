@@ -10,6 +10,9 @@ Kintai Agent Frontend 設定 (A2A版)
 """
 import os
 import sys
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # AWS設定
 REGION = os.getenv("AWS_REGION", "ap-northeast-1")
