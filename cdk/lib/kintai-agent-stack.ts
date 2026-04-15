@@ -20,7 +20,7 @@ export class KintaiAgentStack extends cdk.Stack {
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
   public readonly gateway: agentcore.Gateway;
-  public readonly runtime: agentcore.Runtime;
+  // public readonly runtime: agentcore.Runtime;  // HTTP版は廃止（A2A版に統一）
   public readonly runtimeA2A: agentcore.Runtime;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -337,42 +337,44 @@ export class KintaiAgentStack extends cdk.Stack {
 
     // AgentCore Runtime - Strands Agentのホスティング（ECRベースのデプロイ）
     // DockerイメージをビルドしてECRにプッシュ
-    this.runtime = new agentcore.Runtime(this, 'KintaiRuntimeV2', {
-      runtimeName: 'kintai_agent',  // ハイフンではなくアンダースコアを使用
-      description: 'Kintai Agent Runtime for work hours management',
-      agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromAsset(
-        path.join(__dirname, '../../kintai_agent'),
-        {
-          platform: cdk.aws_ecr_assets.Platform.LINUX_ARM64,  // AgentCore RuntimeはARM64を使用
-        }
-      ),
-      networkConfiguration: agentcore.RuntimeNetworkConfiguration.usingPublicNetwork(),
-      // === 認証設定 ===
-      // Cognito認証（Access Token使用）
-      // 共通A2Aクライアント対応時は、CDKコンテキストで共通Cognitoを参照可能
-      // npx cdk deploy -c sharedUserPoolId=xxx -c sharedUserPoolClientId=yyy
-      authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingCognito(
-        this.userPool,
-        [this.userPoolClient]
-      ),
-      environmentVariables: {
-        GATEWAY_URL: `https://${this.gateway.gatewayId}.gateway.bedrock-agentcore.${this.region}.amazonaws.com/mcp`,
-        WORKLOAD_NAME: 'kintai_agent',  // ハイフンではなくアンダースコアを使用
-        // ACCESS_TOKEN: AgentCore Runtimeが自動的に環境変数として設定
-        DATA_BUCKET: this.dataBucket.bucketName,
-        TOKEN_CACHE_TABLE: this.tokenCacheTable.tableName,
-        AWS_REGION: this.region,
-        MODEL_ID: 'jp.anthropic.claude-sonnet-4-6',
-        // Force update timestamp
-        DEPLOY_VERSION: '2026-04-01-ap-northeast-1',
-      },
-    });
+    // === HTTP版 Runtime は廃止（A2A版に統一） ===
+    // 壊れた状態で残存すると定期ヘルスチェックによるM2Mトークン要求でCognitoコストが発生するため削除
+    // this.runtime = new agentcore.Runtime(this, 'KintaiRuntimeV2', {
+    //   runtimeName: 'kintai_agent',  // ハイフンではなくアンダースコアを使用
+    //   description: 'Kintai Agent Runtime for work hours management',
+    //   agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromAsset(
+    //     path.join(__dirname, '../../kintai_agent'),
+    //     {
+    //       platform: cdk.aws_ecr_assets.Platform.LINUX_ARM64,  // AgentCore RuntimeはARM64を使用
+    //     }
+    //   ),
+    //   networkConfiguration: agentcore.RuntimeNetworkConfiguration.usingPublicNetwork(),
+    //   // === 認証設定 ===
+    //   // Cognito認証（Access Token使用）
+    //   // 共通A2Aクライアント対応時は、CDKコンテキストで共通Cognitoを参照可能
+    //   // npx cdk deploy -c sharedUserPoolId=xxx -c sharedUserPoolClientId=yyy
+    //   authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingCognito(
+    //     this.userPool,
+    //     [this.userPoolClient]
+    //   ),
+    //   environmentVariables: {
+    //     GATEWAY_URL: `https://${this.gateway.gatewayId}.gateway.bedrock-agentcore.${this.region}.amazonaws.com/mcp`,
+    //     WORKLOAD_NAME: 'kintai_agent',  // ハイフンではなくアンダースコアを使用
+    //     // ACCESS_TOKEN: AgentCore Runtimeが自動的に環境変数として設定
+    //     DATA_BUCKET: this.dataBucket.bucketName,
+    //     TOKEN_CACHE_TABLE: this.tokenCacheTable.tableName,
+    //     AWS_REGION: this.region,
+    //     MODEL_ID: 'jp.anthropic.claude-sonnet-4-6',
+    //     // Force update timestamp
+    //     DEPLOY_VERSION: '2026-04-01-ap-northeast-1',
+    //   },
+    // });
 
     // Gateway読み込み権限を付与
-    this.gateway.grantRead(this.runtime);
+    // this.gateway.grantRead(this.runtime);
 
     // DynamoDBトークンキャッシュテーブルへの読み書き権限を付与
-    this.tokenCacheTable.grantReadWriteData(this.runtime);
+    // this.tokenCacheTable.grantReadWriteData(this.runtime);
 
     // ========================================================================
     // AgentCore Runtime - A2Aプロトコル版（並行デプロイ）
@@ -429,45 +431,46 @@ export class KintaiAgentStack extends cdk.Stack {
     // A2A Runtime: DynamoDBトークンキャッシュテーブルへの読み書き権限を付与
     this.tokenCacheTable.grantReadWriteData(this.runtimeA2A);
 
-    // M2M OAuth2フロー用のIdentity権限を付与
-    this.runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'bedrock-agentcore:GetResourceOauth2Token',
-        'bedrock-agentcore:GetWorkloadAccessToken',
-        'bedrock-agentcore:GetWorkloadAccessTokenForJWT',
-        'bedrock-agentcore:GetWorkloadAccessTokenForUserId',
-        'bedrock-agentcore:CreateWorkloadIdentity',
-      ],
-      resources: [
-        `arn:aws:bedrock-agentcore:${this.region}:${this.account}:token-vault/*`,
-        `arn:aws:bedrock-agentcore:${this.region}:${this.account}:workload-identity-directory/*`,
-      ],
-    }));
+    // === HTTP版 Runtime 廃止に伴いコメントアウト ===
+    // // M2M OAuth2フロー用のIdentity権限を付与
+    // this.runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
+    //   effect: iam.Effect.ALLOW,
+    //   actions: [
+    //     'bedrock-agentcore:GetResourceOauth2Token',
+    //     'bedrock-agentcore:GetWorkloadAccessToken',
+    //     'bedrock-agentcore:GetWorkloadAccessTokenForJWT',
+    //     'bedrock-agentcore:GetWorkloadAccessTokenForUserId',
+    //     'bedrock-agentcore:CreateWorkloadIdentity',
+    //   ],
+    //   resources: [
+    //     `arn:aws:bedrock-agentcore:${this.region}:${this.account}:token-vault/*`,
+    //     `arn:aws:bedrock-agentcore:${this.region}:${this.account}:workload-identity-directory/*`,
+    //   ],
+    // }));
 
-    // Secrets Manager権限（Credential Provider用）
-    this.runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'secretsmanager:GetSecretValue',
-      ],
-      resources: [
-        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity*`,
-      ],
-    }));
+    // // Secrets Manager権限（Credential Provider用）
+    // this.runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
+    //   effect: iam.Effect.ALLOW,
+    //   actions: [
+    //     'secretsmanager:GetSecretValue',
+    //   ],
+    //   resources: [
+    //     `arn:aws:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity*`,
+    //   ],
+    // }));
 
-    // Bedrockモデル呼び出し権限を付与（クロスリージョン対応）
-    this.runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'bedrock:InvokeModel',
-        'bedrock:InvokeModelWithResponseStream',
-      ],
-      resources: [
-        'arn:aws:bedrock:*::foundation-model/*',
-        `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
-      ],
-    }));
+    // // Bedrockモデル呼び出し権限を付与（クロスリージョン対応）
+    // this.runtime.grantPrincipal.addToPrincipalPolicy(new iam.PolicyStatement({
+    //   effect: iam.Effect.ALLOW,
+    //   actions: [
+    //     'bedrock:InvokeModel',
+    //     'bedrock:InvokeModelWithResponseStream',
+    //   ],
+    //   resources: [
+    //     'arn:aws:bedrock:*::foundation-model/*',
+    //     `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+    //   ],
+    // }));
 
     // ========================================================================
     // A2A Runtime用の権限設定
