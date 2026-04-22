@@ -13,26 +13,26 @@ class CommandGenerator:
 
     # コマンドパターン定義
     PATTERNS = {
-        # 単日add: OA Lacco APP add YYYY/MM/DD 案件ID 区分ID 割合%
-        'add': r'^OA Lacco APP add \d{4}/\d{2}/\d{2} \d+ \d+ \d+%$',
-        # 月全体add: OA Lacco APP add -r YYYY/MM 案件ID 区分ID 割合%
-        'add_r': r'^OA Lacco APP add -r \d{4}/\d{2} \d+ \d+ \d+%$',
-        # 日数指定add: OA Lacco APP add -t 日数 YYYY/MM/DD 案件ID 区分ID 割合%
-        'add_t': r'^OA Lacco APP add -t \d+ \d{4}/\d{2}/\d{2} \d+ \d+ \d+%$',
-        # 期間指定add: OA Lacco APP add -u YYYY/MM/DD YYYY/MM/DD 案件ID 区分ID 割合%
-        'add_u': r'^OA Lacco APP add -u \d{4}/\d{2}/\d{2} \d{4}/\d{2}/\d{2} \d+ \d+ \d+%$',
-        # コピー: OA Lacco APP cp YYYY/MM/DD YYYY/MM/DD (または .)
-        'cp': r'^OA Lacco APP cp (\d{4}/\d{2}/\d{2}|\.) (\d{4}/\d{2}/\d{2}|\.)$',
-        # 削除（日）: OA Lacco APP rm YYYY/MM/DD
-        'rm_day': r'^OA Lacco APP rm \d{4}/\d{2}/\d{2}$',
-        # 削除（月）: OA Lacco APP rm YYYY/MM
-        'rm_month': r'^OA Lacco APP rm \d{4}/\d{2}$',
-        # 確認（日）: OA Lacco APP ls /data/YYYY/MM/DD
-        'ls_day': r'^OA Lacco APP ls /data/\d{4}/\d{2}/\d{2}$',
-        # 確認（月）: OA Lacco APP ls /data/YYYY/MM
-        'ls_month': r'^OA Lacco APP ls /data/\d{4}/\d{2}$',
-        # 確認（今月）: OA Lacco APP ls now
-        'ls_now': r'^OA Lacco APP ls now$',
+        # 単日add: add YYYY/MM/DD 案件ID 区分ID 割合%
+        'add': r'^add \d{4}/\d{2}/\d{2} \d+ \d+ \d+%$',
+        # 月全体add: add -r YYYY/MM 案件ID 区分ID 割合%
+        'add_r': r'^add -r \d{4}/\d{2} \d+ \d+ \d+%$',
+        # 日数指定add: add -t 日数 YYYY/MM/DD 案件ID 区分ID 割合%
+        'add_t': r'^add -t \d+ \d{4}/\d{2}/\d{2} \d+ \d+ \d+%$',
+        # 期間指定add: add -u YYYY/MM/DD YYYY/MM/DD 案件ID 区分ID 割合%
+        'add_u': r'^add -u \d{4}/\d{2}/\d{2} \d{4}/\d{2}/\d{2} \d+ \d+ \d+%$',
+        # コピー: cp YYYY/MM/DD YYYY/MM/DD (または .)
+        'cp': r'^cp (\d{4}/\d{2}/\d{2}|\.) (\d{4}/\d{2}/\d{2}|\.)$',
+        # 削除（日）: rm YYYY/MM/DD
+        'rm_day': r'^rm \d{4}/\d{2}/\d{2}$',
+        # 削除（月）: rm YYYY/MM
+        'rm_month': r'^rm \d{4}/\d{2}$',
+        # 確認（日）: ls /data/YYYY/MM/DD
+        'ls_day': r'^ls /data/\d{4}/\d{2}/\d{2}$',
+        # 確認（月）: ls /data/YYYY/MM
+        'ls_month': r'^ls /data/\d{4}/\d{2}$',
+        # 確認（今月）: ls now
+        'ls_now': r'^ls now$',
     }
 
     # 後方互換性のため残す
@@ -99,7 +99,7 @@ class CommandGenerator:
     @staticmethod
     def _validate_add(parts: List[str]) -> Tuple[bool, str]:
         """単日addコマンドの検証"""
-        # OA Lacco APP add 日付 案件ID 区分ID 割合 = 8個
+        # add 日付 案件ID 区分ID 割合 = 8個
         if len(parts) != 8:
             return False, f"コマンドの要素数が正しくありません（{len(parts)}個、期待値: 8個）"
 
@@ -122,7 +122,7 @@ class CommandGenerator:
     @staticmethod
     def _validate_add_r(parts: List[str]) -> Tuple[bool, str]:
         """月全体addコマンドの検証"""
-        # OA Lacco APP add -r 年月 案件ID 区分ID 割合 = 9個
+        # add -r 年月 案件ID 区分ID 割合 = 9個
         if len(parts) != 9:
             return False, f"コマンドの要素数が正しくありません（{len(parts)}個、期待値: 9個）"
 
@@ -145,7 +145,7 @@ class CommandGenerator:
     @staticmethod
     def _validate_add_t(parts: List[str]) -> Tuple[bool, str]:
         """日数指定addコマンドの検証"""
-        # OA Lacco APP add -t 日数 日付 案件ID 区分ID 割合 = 10個
+        # add -t 日数 日付 案件ID 区分ID 割合 = 10個
         if len(parts) != 10:
             return False, f"コマンドの要素数が正しくありません（{len(parts)}個、期待値: 10個）"
 
@@ -172,7 +172,7 @@ class CommandGenerator:
     @staticmethod
     def _validate_add_u(parts: List[str]) -> Tuple[bool, str]:
         """期間指定addコマンドの検証"""
-        # OA Lacco APP add -u 終了日 開始日 案件ID 区分ID 割合 = 10個
+        # add -u 終了日 開始日 案件ID 区分ID 割合 = 10個
         if len(parts) != 10:
             return False, f"コマンドの要素数が正しくありません（{len(parts)}個、期待値: 10個）"
 
@@ -199,7 +199,7 @@ class CommandGenerator:
     @staticmethod
     def _validate_cp(parts: List[str]) -> Tuple[bool, str]:
         """コピーコマンドの検証"""
-        # OA Lacco APP cp 元日付 先日付 = 6個
+        # cp 元日付 先日付 = 6個
         if len(parts) != 6:
             return False, f"コマンドの要素数が正しくありません（{len(parts)}個、期待値: 6個）"
 
@@ -213,7 +213,7 @@ class CommandGenerator:
     @staticmethod
     def _validate_rm(parts: List[str], cmd_type: str) -> Tuple[bool, str]:
         """削除コマンドの検証"""
-        # OA Lacco APP rm 日付/年月 = 5個
+        # rm 日付/年月 = 5個
         if len(parts) != 5:
             return False, f"コマンドの要素数が正しくありません（{len(parts)}個、期待値: 5個）"
 
@@ -269,13 +269,13 @@ class CommandGenerator:
             try:
                 # コマンドタイプごとに割合の位置が異なる
                 if cmd_type == 'add':
-                    # OA Lacco APP add 日付 案件ID 区分ID 割合 = 8個、割合はparts[7]
+                    # add 日付 案件ID 区分ID 割合 = 8個、割合はparts[7]
                     percentage_str = parts[7].rstrip('%')
                 elif cmd_type == 'add_r':
-                    # OA Lacco APP add -r 年月 案件ID 区分ID 割合 = 9個、割合はparts[8]
+                    # add -r 年月 案件ID 区分ID 割合 = 9個、割合はparts[8]
                     percentage_str = parts[8].rstrip('%')
                 elif cmd_type in ('add_t', 'add_u'):
-                    # OA Lacco APP add -t/-u ... 割合 = 10個、割合はparts[9]
+                    # add -t/-u ... 割合 = 10個、割合はparts[9]
                     percentage_str = parts[9].rstrip('%')
                 else:
                     continue
@@ -312,7 +312,7 @@ class CommandGenerator:
         Returns:
             str: 生成されたコマンド
         """
-        return f"OA Lacco APP add {date} {project_id} {category_id} {percentage}%"
+        return f"add {date} {project_id} {category_id} {percentage}%"
 
     @staticmethod
     def format_add_monthly(
@@ -322,7 +322,7 @@ class CommandGenerator:
         percentage: int
     ) -> str:
         """月全体addコマンドを生成"""
-        return f"OA Lacco APP add -r {year_month} {project_id} {category_id} {percentage}%"
+        return f"add -r {year_month} {project_id} {category_id} {percentage}%"
 
     @staticmethod
     def format_add_days(
@@ -333,7 +333,7 @@ class CommandGenerator:
         percentage: int
     ) -> str:
         """日数指定addコマンドを生成"""
-        return f"OA Lacco APP add -t {days} {date} {project_id} {category_id} {percentage}%"
+        return f"add -t {days} {date} {project_id} {category_id} {percentage}%"
 
     @staticmethod
     def format_add_until(
@@ -344,21 +344,21 @@ class CommandGenerator:
         percentage: int
     ) -> str:
         """期間指定addコマンドを生成"""
-        return f"OA Lacco APP add -u {end_date} {start_date} {project_id} {category_id} {percentage}%"
+        return f"add -u {end_date} {start_date} {project_id} {category_id} {percentage}%"
 
     @staticmethod
     def format_copy(source_date: str, target_date: str) -> str:
         """コピーコマンドを生成"""
-        return f"OA Lacco APP cp {source_date} {target_date}"
+        return f"cp {source_date} {target_date}"
 
     @staticmethod
     def format_remove(date_or_month: str) -> str:
         """削除コマンドを生成"""
-        return f"OA Lacco APP rm {date_or_month}"
+        return f"rm {date_or_month}"
 
     @staticmethod
     def format_list(path: str = "now") -> str:
         """確認コマンドを生成"""
         if path == "now":
-            return "OA Lacco APP ls now"
-        return f"OA Lacco APP ls /data/{path}"
+            return "ls now"
+        return f"ls /data/{path}"
