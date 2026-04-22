@@ -170,7 +170,7 @@ def _build_json_output_section() -> str:
 {
   "success": true,
   "commands": [
-    "OA Lacco APP add 2026/01/27 12345 1 50%"
+    "add 2026/01/27 12345 1 50%"
   ],
   "explanation": "プロジェクトAで開発作業を50%実施",
   "warnings": [],
@@ -223,7 +223,7 @@ def _build_natural_response_section(today: str) -> str:
 
 生成されたコマンド:
 ```
-OA Lacco APP add {today} 12345 2 100%
+add {today} 12345 2 100%
 ```
 
 - 日付: {today}
@@ -236,7 +236,7 @@ OA Lacco APP add {today} 12345 2 100%
 
 生成されたコマンド:
 ```
-OA Lacco APP add -r 2026/02 12345 1 50%
+add -r 2026/02 12345 1 50%
 ```
 ※ 2月の全営業日に登録されます」
 
@@ -247,7 +247,7 @@ OA Lacco APP add -r 2026/02 12345 1 50%
 
 生成されたコマンド:
 ```
-OA Lacco APP cp 2026/02/17 .
+cp 2026/02/17 .
 ```」
 
 例（削除）:
@@ -255,15 +255,15 @@ OA Lacco APP cp 2026/02/17 .
 
 生成されたコマンド:
 ```
-OA Lacco APP rm 2026/02/18
-```」
+rm 2026/02/18
+```
 
 例（確認）:
 「今月の工数を確認しますね。
 
 コマンド:
 ```
-OA Lacco APP ls now
+ls now
 ```」
 </response_format>
 
